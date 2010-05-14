@@ -63,6 +63,7 @@ class scribeHandler : virtual public scribe::thrift::scribeIf,
   void incCounter(std::string category, std::string counter, long amount);
   void incCounter(std::string counter);
   void incCounter(std::string counter, long amount);
+  void setCounter(std::string counter, long amount);
 
  private:
   unsigned long checkPeriod; // periodic check interval for all contained stores

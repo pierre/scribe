@@ -67,6 +67,10 @@ void scribeHandler::incCounter(string counter, long amount) {
   incrementCounter(overall_category + log_separator + counter, amount);
 }
 
+void scribeHandler::setCounter(string counter, long amount) {
+  FacebookBase::setCounter(overall_category + log_separator + counter, amount);
+}
+
 int main(int argc, char **argv) {
 
   try {

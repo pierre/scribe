@@ -24,10 +24,13 @@
 
 #include "common.h"
 
+// Number of messages sent between two reconnections
+#define SENT_SINCE_LAST_RECONNECT "sent since last reconnect"
+
 class scribeConn {
  public:
-  scribeConn(const std::string& host, unsigned long port, int timeout);
-  scribeConn(const std::string &service, const server_vector_t &servers, int timeout);
+  scribeConn(const std::string& host, unsigned long port, int timeout, int msgThresholdBeforeReconnect);
+  scribeConn(const std::string &service, const server_vector_t &servers, int timeout, int msgThresholdBeforeReconnect);
   virtual ~scribeConn();
 
   void addRef();
@@ -44,6 +47,7 @@ class scribeConn {
 
  private:
   std::string connectionString();
+  void reopenConnectionIfNeeded();
 
  protected:
   boost::shared_ptr<apache::thrift::transport::TSocket> socket;
@@ -58,8 +62,11 @@ class scribeConn {
   server_vector_t serverList;
   std::string remoteHost;
   unsigned long remotePort;
+  long sentSinceLastReconnect;
   int timeout; // connection, send, and recv timeout
   pthread_mutex_t mutex;
+
+  int msgThresholdBeforeReconnect; // number of messages to send before re-opening the connection
 };
 
 // key is hostname:port or the smc_service
@@ -75,8 +82,8 @@ class ConnPool {
   ConnPool();
   virtual ~ConnPool();
 
-  bool open(const std::string& host, unsigned long port, int timeout);
-  bool open(const std::string &service, const server_vector_t &servers, int timeout);
+  bool open(const std::string& host, unsigned long port, int timeout, int msgThresholdBeforeReconnect);
+  bool open(const std::string &service, const server_vector_t &servers, int timeout, int msgThresholdBeforeReconnect);
 
   void close(const std::string& host, unsigned long port);
   void close(const std::string &service);

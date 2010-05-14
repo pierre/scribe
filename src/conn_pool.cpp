@@ -54,14 +54,14 @@ string ConnPool::makeKey(const string& hostname, unsigned long port) {
   return key;
 }
 
-bool ConnPool::open(const string& hostname, unsigned long port, int timeout) {
+bool ConnPool::open(const string& hostname, unsigned long port, int timeout, int msgThresholdBeforeReconnect) {
 	return openCommon(makeKey(hostname, port),
-                    shared_ptr<scribeConn>(new scribeConn(hostname, port, timeout)));
+                    shared_ptr<scribeConn>(new scribeConn(hostname, port, timeout, msgThresholdBeforeReconnect)));
 }
 
-bool ConnPool::open(const string &service, const server_vector_t &servers, int timeout) {
+bool ConnPool::open(const string &service, const server_vector_t &servers, int timeout, int msgThresholdBeforeReconnect) {
 	return openCommon(service,
-                    shared_ptr<scribeConn>(new scribeConn(service, servers, timeout)));
+                    shared_ptr<scribeConn>(new scribeConn(service, servers, timeout, msgThresholdBeforeReconnect)));
 }
 
 void ConnPool::close(const string& hostname, unsigned long port) {
@@ -148,21 +148,23 @@ bool ConnPool::sendCommon(const string &key,
   }
 }
 
-scribeConn::scribeConn(const string& hostname, unsigned long port, int timeout_)
+scribeConn::scribeConn(const string& hostname, unsigned long port, int timeout_, int msgThresholdBeforeReconnect_)
   : refCount(1),
   smcBased(false),
   remoteHost(hostname),
   remotePort(port),
-  timeout(timeout_) {
+  timeout(timeout_),
+  msgThresholdBeforeReconnect(msgThresholdBeforeReconnect_) {
   pthread_mutex_init(&mutex, NULL);
 }
 
-scribeConn::scribeConn(const string& service, const server_vector_t &servers, int timeout_)
+scribeConn::scribeConn(const string& service, const server_vector_t &servers, int timeout_, int msgThresholdBeforeReconnect_)
   : refCount(1),
   smcBased(true),
   smcService(service),
   serverList(servers),
-  timeout(timeout_) {
+  timeout(timeout_),
+  msgThresholdBeforeReconnect(msgThresholdBeforeReconnect_) {
   pthread_mutex_init(&mutex, NULL);
 }
 
@@ -250,6 +252,37 @@ void scribeConn::close() {
   }
 }
 
+/**
+ * Reopen connection if needed: if max_msg_before_reconnect has been set and
+ * the number of messages sent to a single peer is greater than this threshold,
+ * force a disconnect and reopen a connection.
+ * This can be needed for load balancing and fault tolerance, where a set of
+ * servers constitute the Network Store and are all behind a load balancer or
+ * a single DNS (DNS round robin).
+ */
+void scribeConn::reopenConnectionIfNeeded() {
+  if (msgThresholdBeforeReconnect > 0 && sentSinceLastReconnect > msgThresholdBeforeReconnect) {
+    LOG_OPER("Sent <%ld> messages since last reconnect to  %s, threshold is <%d>, re-opening the connection",
+            sentSinceLastReconnect, connectionString().c_str(), msgThresholdBeforeReconnect);
+
+    if (isOpen()) {
+      close();
+    } else {
+      LOG_OPER("Cannot close the current connection with %s, connection doesn't seem open",
+              connectionString().c_str());
+    }
+
+    if (!isOpen()) {
+      open();
+      sentSinceLastReconnect = 0;
+      g_Handler->setCounter(SENT_SINCE_LAST_RECONNECT, sentSinceLastReconnect);
+    } else {
+      LOG_OPER("Cannot re-open the connection with %s, connection seems open already",
+              connectionString().c_str());
+    }
+  }
+}
+
 bool scribeConn::send(boost::shared_ptr<logentry_vector_t> messages) {
   int size = messages->size();
   if (size <= 0) {
@@ -258,6 +291,9 @@ bool scribeConn::send(boost::shared_ptr<logentry_vector_t> messages) {
   if (!isOpen()) {
     if (!open()) {
       return false;
+    } else {
+      sentSinceLastReconnect = 0;
+      g_Handler->setCounter(SENT_SINCE_LAST_RECONNECT, sentSinceLastReconnect);
     }
   }
 
@@ -276,9 +312,12 @@ bool scribeConn::send(boost::shared_ptr<logentry_vector_t> messages) {
     result = resendClient->Log(msgs);
 
     if (result == OK) {
+      sentSinceLastReconnect += size;
       g_Handler->incCounter("sent", size);
-      LOG_OPER("Successfully sent <%d> messages to remote scribe server %s",
-          size, connectionString().c_str());
+      g_Handler->incCounter(SENT_SINCE_LAST_RECONNECT, size);
+      LOG_OPER("Successfully sent <%d> messages to remote scribe server %s (<%ld> since last reconnection)",
+          size, connectionString().c_str(), sentSinceLastReconnect);
+      reopenConnectionIfNeeded();
       return true;
     } else {
       LOG_OPER("Failed to send <%d> messages, remote scribe server %s returned error code <%d>",

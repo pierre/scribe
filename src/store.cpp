@@ -1724,6 +1724,10 @@ void NetworkStore::configure(pStoreConf configuration) {
     timeout = DEFAULT_SOCKET_TIMEOUT_MS;
   }
 
+  if (!configuration->getInt("max_msg_before_reconnect", msgThresholdBeforeReconnect)) {
+      msgThresholdBeforeReconnect = -1;
+  }
+
   string temp;
   if (configuration->getString("use_conn_pool", temp)) {
     if (0 == temp.compare("yes")) {
@@ -1753,11 +1757,11 @@ bool NetworkStore::open() {
     }
 
     if (useConnPool) {
-      opened = g_connPool.open(smcService, servers, static_cast<int>(timeout));
+      opened = g_connPool.open(smcService, servers, static_cast<int>(timeout), msgThresholdBeforeReconnect);
     } else {
       // only open unpooled connection if not already open
       if (unpooledConn == NULL) {
-        unpooledConn = shared_ptr<scribeConn>(new scribeConn(smcService, servers, static_cast<int>(timeout)));
+        unpooledConn = shared_ptr<scribeConn>(new scribeConn(smcService, servers, static_cast<int>(timeout), msgThresholdBeforeReconnect));
         opened = unpooledConn->open();
       } else {
         opened = unpooledConn->isOpen();
@@ -1775,11 +1779,11 @@ bool NetworkStore::open() {
 
   } else {
     if (useConnPool) {
-      opened = g_connPool.open(remoteHost, remotePort, static_cast<int>(timeout));
+      opened = g_connPool.open(remoteHost, remotePort, static_cast<int>(timeout), msgThresholdBeforeReconnect);
     } else {
       // only open unpooled connection if not already open
       if (unpooledConn == NULL) {
-        unpooledConn = shared_ptr<scribeConn>(new scribeConn(remoteHost, remotePort, static_cast<int>(timeout)));
+        unpooledConn = shared_ptr<scribeConn>(new scribeConn(remoteHost, remotePort, static_cast<int>(timeout), msgThresholdBeforeReconnect));
         opened = unpooledConn->open();
       } else {
         opened = unpooledConn->isOpen();
@@ -1828,6 +1832,7 @@ shared_ptr<Store> NetworkStore::copy(const std::string &category) {
   store->useConnPool = useConnPool;
   store->smcBased = smcBased;
   store->timeout = timeout;
+  store->msgThresholdBeforeReconnect = msgThresholdBeforeReconnect;
   store->remoteHost = remoteHost;
   store->remotePort = remotePort;
   store->smcService = smcService;
