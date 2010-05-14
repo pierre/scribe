@@ -106,3 +106,8 @@ need to edit test/tests.php to point test clients at the right place.
    - Eg: "categories=test1 test2 test3"
 
 11) test bucketstore using buckettest.conf and bucket_test.php
+
+12) reconnection with Network Store
+   - start a central scribe server(ie bin/scribed test/scribe.conf.reconnection.test)
+   - start another scribe server(ie bin/scribed test/scribe.conf.test)
+   - start the reconnection test
