@@ -9,3 +9,15 @@ install-sh
 missing
 mkinstalldirs
 *.o
+.cproject
+.dep.inc
+.idea/
+.metadata/
+.project
+*.in
+*.mk
+*.iml
+aclocal.m4
+autom4te.cache
+configure
+nbproject
