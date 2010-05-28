@@ -211,6 +211,21 @@ bool scribeConn::open() {
     socket->setRecvTimeout(timeout);
     socket->setSendTimeout(timeout);
 
+    /* Turn off SO_LINGER (rely on the TCP stack in the kernel to do the right
+     * thing on close()).
+     *
+     * By default, a TSocket has SO_LINGER turned on, with no timeout.
+     * This means that a close() returns immediately and the underlying stack
+     * discards any unsent data, and sends a RST (reset) to the peer.
+     *
+     * This is bad for multiple reasons. The implementation of SO_LINGER is OS
+     * dependent (not always clear of the side effects) and it will confuse the
+     * Network Store clients (will trigger IOException).
+     *
+     * See related issue https://issues.apache.org/jira/browse/THRIFT-748.
+     */
+    socket->setLinger(false, 0);
+
     framedTransport = shared_ptr<TFramedTransport>(new TFramedTransport(socket));
     if (!framedTransport) {
       throw std::runtime_error("Failed to create framed transport");
